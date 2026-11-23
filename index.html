@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>工作记录台</title>
+  <style>
+    :root {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+      color: #1f2933;
+      background: #f6f8fa;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 32px 16px; }
+    .wrap { max-width: 760px; margin: 0 auto; }
+    .card {
+      background: #fff;
+      border: 1px solid #d9e0e6;
+      border-radius: 12px;
+      padding: 24px;
+      margin-bottom: 16px;
+    }
+    h1 { font-size: 20px; font-weight: 600; margin: 0 0 8px; }
+    h2 { font-size: 16px; font-weight: 600; margin: 0 0 16px; }
+    .muted { color: #667085; font-size: 13px; line-height: 1.6; }
+    label { display: block; font-size: 13px; margin: 12px 0 6px; }
+    input, textarea, select, button {
+      font: inherit;
+      border-radius: 8px;
+      border: 1px solid #cbd2d9;
+      padding: 10px 12px;
+      width: 100%;
+      background: #fff;
+      color: #1f2933;
+    }
+    textarea { min-height: 88px; resize: vertical; }
+    button {
+      cursor: pointer;
+      background: #185fa5;
+      border-color: #185fa5;
+      color: #fff;
+      font-weight: 500;
+      margin-top: 12px;
+    }
+    button.secondary { background: #fff; color: #185fa5; }
+    button.danger { background: #fff; color: #a32d2d; border-color: #e24b4a; margin: 0; width: auto; padding: 6px 12px; }
+    button:disabled { opacity: 0.55; cursor: not-allowed; }
+    .row { display: flex; gap: 12px; align-items: flex-end; }
+    .row > * { flex: 1; }
+    .error { color: #a32d2d; font-size: 13px; min-height: 20px; margin-top: 8px; }
+    .ok { color: #0f6e56; font-size: 13px; min-height: 20px; margin-top: 8px; }
+    .note {
+      border: 1px solid #e4e8ec;
+      border-radius: 10px;
+      padding: 14px 16px;
+      margin-bottom: 10px;
+      background: #fcfcfd;
+    }
+    .note-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+    .note-title { font-weight: 600; }
+    .note-meta { color: #667085; font-size: 12px; }
+    .note-content { margin-top: 8px; font-size: 14px; white-space: pre-wrap; }
+    .badge { font-size: 12px; padding: 2px 8px; border-radius: 999px; background: #e6f1fb; color: #0c447c; }
+    .hidden { display: none; }
+    .topbar { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+    .topbar button { width: auto; margin: 0; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <div class="topbar">
+        <div>
+          <h1>工作记录台</h1>
+          <div class="muted">登录后记录工作事项，数据只属于你自己的账号。</div>
+        </div>
+        <button id="signout" class="secondary hidden">退出登录</button>
+      </div>
+    </div>
+
+    <div id="loginView" class="card">
+      <h2>登录 / 注册</h2>
+      <label for="phone">手机号</label>
+      <input id="phone" inputmode="numeric" maxlength="11" placeholder="11 位手机号" />
+      <div id="phoneError" class="error"></div>
+      <label for="code">短信验证码</label>
+      <div class="row">
+        <input id="code" inputmode="numeric" maxlength="6" placeholder="验证码" />
+        <button id="sendCode" type="button" class="secondary">获取验证码</button>
+      </div>
+      <button id="submitPhone" type="button">登录 / 注册</button>
+      <button id="wechatLogin" type="button" class="secondary">微信登录</button>
+      <div id="loginError" class="error"></div>
+      <div class="muted">提示：微信登录需要站点发布到正式的 HTTPS 域名后才能完成回调。</div>
+    </div>
+
+    <div id="appView" class="hidden">
+      <div class="card">
+        <h2>新增记录</h2>
+        <label for="title">标题</label>
+        <input id="title" placeholder="例如：本周工作小结" />
+        <label for="content">内容</label>
+        <textarea id="content" placeholder="记录具体内容..."></textarea>
+        <div class="row">
+          <div>
+            <label for="status">状态</label>
+            <select id="status">
+              <option value="draft">草稿</option>
+              <option value="done">已完成</option>
+            </select>
+          </div>
+          <div>
+            <label>&nbsp;</label>
+            <button id="addNote" type="button">保存记录</button>
+          </div>
+        </div>
+        <div id="actionMsg" class="ok"></div>
+      </div>
+
+      <div class="card">
+        <h2>我的记录</h2>
+        <div id="noteList"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@tencent-ai/workbuddy-cloud-sdk@dev/lib/index.global.js"></script>
+  <script>
+    const cloud = WorkBuddyCloud.createWorkBuddyCloud({
+      endpoint: "https://work-site.app.workbuddy.host",
+      oauthRelayBaseUrl: "https://www.workbuddy.cn/v2/as/genie-baas/oauth",
+      publishableKey: "wbpk_5Th4W1gnzzjiFcsN9W2hTo_VG1nEpyJxoMDova4yWyCsI2GUZx23Gqo"
+    });
+
+    const $ = (id) => document.getElementById(id);
+    let pendingOtp = null;
+    let currentSession = null;
+
+    function showLoginView(message) {
+      $("loginView").classList.remove("hidden");
+      $("appView").classList.add("hidden");
+      $("signout").classList.add("hidden");
+      $("loginError").textContent = message || "";
+      currentSession = null;
+    }
+
+    function showAppView(session) {
+      currentSession = session;
+      $("loginView").classList.add("hidden");
+      $("appView").classList.remove("hidden");
+      $("signout").classList.remove("hidden");
+      const name = session && session.user && session.user.name;
+      $("actionMsg").textContent = name ? "已登录：" + name : "已登录";
+      return loadNotes();
+    }
+
+    function setPhoneError(msg) {
+      $("phoneError").textContent = msg || "";
+    }
+
+    async function sendPhoneCode() {
+      const phone = $("phone").value.trim();
+      if (!/^1\d{10}$/.test(phone)) {
+        setPhoneError("请输入正确的 11 位手机号");
+        return;
+      }
+      setPhoneError("");
+      $("sendCode").disabled = true;
+      $("loginError").textContent = "";
+      try {
+        const sent = await cloud.auth.sendOtp({ phone });
+        if (sent.error) {
+          $("loginError").textContent = sent.error.message || "验证码发送失败，请稍后重试";
+          return;
+        }
+        pendingOtp = { phone, verificationId: sent.data.verificationId, isExistingUser: sent.data.isExistingUser };
+        $("actionMsg").textContent = "验证码已发送";
+        $("code").focus();
+      } catch (e) {
+        $("loginError").textContent = "网络异常，请稍后重试";
+      } finally {
+        $("sendCode").disabled = false;
+      }
+    }
+
+    async function submitPhoneLogin() {
+      const phone = $("phone").value.trim();
+      const token = $("code").value.trim();
+      const pending = pendingOtp;
+      if (!pending || pending.phone !== phone) {
+        $("loginError").textContent = "请先获取当前手机号的验证码";
+        return;
+      }
+      $("submitPhone").disabled = true;
+      $("loginError").textContent = "";
+      try {
+        const completed = await cloud.auth.verifyOtp({
+          phone: pending.phone,
+          verificationId: pending.verificationId,
+          isExistingUser: pending.isExistingUser,
+          token
+        });
+        if (completed.error) {
+          $("loginError").textContent = completed.error.message || "验证码不正确或已过期";
+          return;
+        }
+        pendingOtp = null;
+        await showAppView(completed.data.session || completed.data);
+      } catch (e) {
+        $("loginError").textContent = "网络异常，请稍后重试";
+      } finally {
+        $("submitPhone").disabled = false;
+      }
+    }
+
+    async function wechatLogin() {
+      $("loginError").textContent = "";
+      const { data, error } = await cloud.auth.signInWithOAuth({
+        provider: "wechat",
+        redirectTo: location.origin
+      });
+      if (error) {
+        $("loginError").textContent = error.message || "暂时无法使用微信登录";
+        return;
+      }
+      location.assign(data.url);
+    }
+
+    async function restoreAuth() {
+      const url = new URL(location.href);
+      if (url.searchParams.has("code") || url.searchParams.has("error")) {
+        const provider = url.searchParams.get("provider");
+        if (provider !== "wechat") {
+          showLoginView("授权回调缺少有效的登录方式，请重新登录。");
+          return;
+        }
+        const handler = cloud.auth.handleWechatWebCallback;
+        if (typeof handler !== "function") {
+          showLoginView("暂时无法使用此方式登录，请联系应用管理员。");
+          return;
+        }
+        const { data: session, error } = await handler.call(cloud.auth);
+        if (error) {
+          showLoginView(error.message || "登录失败，请重试");
+          return;
+        }
+        if (session) {
+          for (const key of ["code", "state", "provider"]) url.searchParams.delete(key);
+          history.replaceState(null, "", url.pathname + url.search + url.hash);
+          await showAppView(session);
+        } else {
+          await continueNormalStartup();
+        }
+        return;
+      }
+      await continueNormalStartup();
+    }
+
+    async function continueNormalStartup() {
+      const { data: session, error } = await cloud.auth.getSession();
+      if (error || !session) {
+        showLoginView();
+        return;
+      }
+      await showAppView(session);
+    }
+
+    async function loadNotes() {
+      const { data: session, error: authError } = await cloud.auth.getSession();
+      if (authError || !session) {
+        showLoginView("登录状态已失效，请重新登录");
+        return;
+      }
+      const { data, error } = await cloud.database
+        .from("work_notes")
+        .select("id, title, content, status, created_at, owner_name")
+        .order("created_at", { ascending: false });
+      const list = $("noteList");
+      list.innerHTML = "";
+      if (error) {
+        list.innerHTML = '<div class="muted">读取失败：' + (error.message || "请稍后重试") + "</div>";
+        return;
+      }
+      if (!data || data.length === 0) {
+        list.innerHTML = '<div class="muted">还没有记录，先新增一条吧。</div>';
+        return;
+      }
+      data.forEach((item) => {
+        const el = document.createElement("div");
+        el.className = "note";
+        const time = item.created_at ? new Date(item.created_at).toLocaleString("zh-CN") : "";
+        el.innerHTML =
+          '<div class="note-head"><span class="note-title"></span>' +
+          '<span class="badge"></span></div>' +
+          '<div class="note-content"></div>' +
+          '<div class="note-meta"></div>' +
+          '<button class="danger" type="button">删除</button>';
+        el.querySelector(".note-title").textContent = item.title;
+        el.querySelector(".badge").textContent = item.status === "done" ? "已完成" : "草稿";
+        el.querySelector(".note-content").textContent = item.content || "";
+        el.querySelector(".note-meta").textContent = time + (item.owner_name ? " · " + item.owner_name : "");
+        el.querySelector("button").onclick = () => deleteNote(item.id);
+        list.appendChild(el);
+      });
+    }
+
+    async function addNote() {
+      const title = $("title").value.trim();
+      const content = $("content").value.trim();
+      const status = $("status").value;
+      if (!title) {
+        $("actionMsg").textContent = "请填写标题";
+        return;
+      }
+      const { data: session, error: authError } = await cloud.auth.getSession();
+      if (authError || !session) {
+        showLoginView("请先登录");
+        return;
+      }
+      $("addNote").disabled = true;
+      try {
+        const { error } = await cloud.database
+          .from("work_notes")
+          .insert({
+            title,
+            content,
+            status,
+            owner_name: (session.user && session.user.name) || null
+          })
+          .select();
+        if (error) {
+          $("actionMsg").textContent = "保存失败：" + (error.message || "请稍后重试");
+          return;
+        }
+        $("title").value = "";
+        $("content").value = "";
+        $("actionMsg").textContent = "保存成功";
+        await loadNotes();
+      } finally {
+        $("addNote").disabled = false;
+      }
+    }
+
+    async function deleteNote(id) {
+      const { data, error } = await cloud.database
+        .from("work_notes")
+        .delete()
+        .eq("id", id)
+        .select();
+      if (error) {
+        $("actionMsg").textContent = "删除失败：" + (error.message || "请稍后重试");
+        return;
+      }
+      if (!data || data.length === 0) {
+        $("actionMsg").textContent = "没有删除任何记录，可能这条记录不属于你";
+        return;
+      }
+      $("actionMsg").textContent = "已删除";
+      await loadNotes();
+    }
+
+    async function signOut() {
+      await cloud.auth.signOut();
+      pendingOtp = null;
+      showLoginView();
+    }
+
+    $("sendCode").onclick = sendPhoneCode;
+    $("submitPhone").onclick = submitPhoneLogin;
+    $("wechatLogin").onclick = wechatLogin;
+    $("addNote").onclick = addNote;
+    $("signout").onclick = signOut;
+    $("phone").oninput = () => setPhoneError("");
+
+    cloud.auth.onAuthStateChange((event, session) => {
+      if (event === "SIGNED_OUT") showLoginView();
+    });
+
+    restoreAuth();
+  </script>
+</body>
+</html>
